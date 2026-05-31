@@ -1,6 +1,6 @@
 ---
 name: repair-codex-computer-use-windows
-description: Diagnose and repair Codex desktop bundled plugin cache issues on Windows when Computer Use, the in-app Browser, or Chrome plugin settings show unavailable; use when logs mention Windows Computer Use helper paths unavailable, Computer Use native pipe path unavailable, bundled marketplace resolve failures, EBUSY locked chrome extension-host folders, or stale openai-bundled plugin paths.
+description: Diagnose, repair, and self-test Codex desktop bundled plugin cache issues on Windows when Computer Use, the in-app Browser, or Chrome plugin settings show unavailable; use when logs mention Windows Computer Use helper paths unavailable, Computer Use native pipe path unavailable, bundled marketplace resolve failures, EBUSY locked chrome extension-host folders, stale openai-bundled plugin paths, or the user wants this Windows machine kept stable for Computer Use.
 ---
 
 # Repair Codex Computer Use on Windows
@@ -22,15 +22,17 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
      `plugins\cache\openai-bundled\computer-use\<version>\node_modules\@oai\sky\dist\project\cua\sky_js\src\targets\windows\internal\helper_transport.js`.
 
 2. Prefer the bundled repair script.
-   - Dry-run first:
+   - Health-check first. This does not change files; it checks required files, config, and `codex plugin list`:
      ```powershell
-     powershell -NoProfile -ExecutionPolicy Bypass -File "<skill-root>\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex"
+     powershell -NoProfile -ExecutionPolicy Bypass -File "<skill-root>\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -SelfTest
      ```
-   - Apply only when the dry-run shows missing marketplace/plugin files:
+   - Apply only when the health check shows missing marketplace/plugin files:
      ```powershell
-     powershell -NoProfile -ExecutionPolicy Bypass -File "<skill-root>\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -Apply
+     powershell -NoProfile -ExecutionPolicy Bypass -File "<skill-root>\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -Apply -SelfTest
      ```
+   - Treat `-Apply -SelfTest` as the local stability command; when already healthy it should report `No missing files found` and pass.
    - Use `-Overwrite` only when files exist but are clearly stale or malformed.
+   - Check the generated log under `CODEX_HOME\logs\repair-codex-computer-use-*.log` when any step fails.
 
 3. Verify with the CLI from an explicit path if `codex` on PATH is blocked by WindowsApps:
    ```powershell
@@ -41,6 +43,8 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
    - `computer-use@openai-bundled`
    - `browser@openai-bundled`
    - `chrome@openai-bundled`
+
+   The bundled script performs this check automatically when run with `-SelfTest`.
 
 4. Restart Codex desktop.
    - Existing tool sessions do not receive the restored Computer Use native pipe path after creation.
@@ -58,4 +62,5 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
 - Do not delete plugin caches as the first step.
 - Do not kill the running Codex desktop from inside the active Codex session unless the user explicitly accepts that the thread may disconnect.
 - Copy missing files conservatively from known-good sources; keep destructive cleanup out of the default workflow.
+- Do not ignore copy failures. The script retries transient locked-file errors and then fails loudly with the source, destination, and error.
 - If the script cannot find packaged resources or cache sources, stop and report the exact missing path.

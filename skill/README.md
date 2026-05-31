@@ -12,4 +12,4 @@ To install manually, copy this directory to:
 %CODEX_HOME%\skills\repair-codex-computer-use-windows
 ```
 
-Keep `SKILL.md`, `openai.yaml`, and `failure-signatures.md` together.
+Keep `SKILL.md`, `agents\openai.yaml`, `references\failure-signatures.md`, and `scripts\repair-bundled-marketplace.ps1` together.

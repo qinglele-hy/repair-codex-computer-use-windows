@@ -32,22 +32,28 @@ It does not delete plugin caches by default.
 
 ## Quick Start
 
-Open PowerShell and run a dry-run first:
+Open PowerShell and run a health check first. This checks the marketplace files, plugin config, and `codex plugin list` without changing files:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1" -SelfTest
 ```
 
-If the dry-run looks correct, apply the repair:
+If the health check reports missing files, apply the repair and immediately run the same self-test:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1" -Apply
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1" -Apply -SelfTest
 ```
 
 If your Codex home is not auto-detected, pass it explicitly:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -Apply
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -Apply -SelfTest
+```
+
+The script is idempotent: when the machine is already healthy, `-Apply -SelfTest` should report `No missing files found` and leave the cache untouched. Each run writes a log under:
+
+```text
+%CODEX_HOME%\logs\repair-codex-computer-use-*.log
 ```
 
 After repair, fully quit and reopen Codex Desktop. Existing Codex sessions will not receive the restored Computer Use native pipe path until a restart.
@@ -79,7 +85,8 @@ The `skill/` directory contains the Codex skill version of the same workflow. To
 
 ## Safety Notes
 
-- Run the default dry-run before `-Apply`.
+- Run the `-SelfTest` health check before `-Apply`.
+- Prefer `-SelfTest` on this machine so failures are visible immediately.
 - Do not run `-Overwrite` unless you know existing files are stale or malformed.
 - Do not manually start `codex-computer-use.exe`; Codex Desktop needs to manage the native pipe and approval flow.
 - Restart Codex Desktop after repair.
