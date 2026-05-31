@@ -1,0 +1,7 @@
+interface:
+  display_name: "Repair Codex Computer Use on Windows"
+  short_description: "Fix Windows Computer Use plugin cache"
+  default_prompt: "Use $repair-codex-computer-use-windows to diagnose unavailable Computer Use or Browser plugins on Windows, repair the bundled marketplace cache if safe, and verify plugin status."
+
+policy:
+  allow_implicit_invocation: true
