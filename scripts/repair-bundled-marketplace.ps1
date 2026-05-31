@@ -345,6 +345,73 @@ function Stop-ChromeHostsUsingMarketplace {
     }
 }
 
+function Get-ReparseTargetText {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or -not ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        return $null
+    }
+    $target = $item.Target
+    if ($target -is [array]) {
+        return ($target | Select-Object -First 1)
+    }
+    return $target
+}
+
+function Set-ChromeLatestToStableCache {
+    param(
+        [string]$CodexHomePath,
+        [string]$StableChromeRoot,
+        [string]$TargetMarketplacePath,
+        [switch]$ApplyChanges
+    )
+
+    $latestPath = Join-Path $CodexHomePath "plugins\cache\openai-bundled\chrome\latest"
+    $latestParent = Split-Path -Parent $latestPath
+    if (-not (Test-Path -LiteralPath $latestParent)) {
+        if ($ApplyChanges) {
+            New-Item -ItemType Directory -Force -Path $latestParent | Out-Null
+        } else {
+            Write-Step "Chrome latest parent is missing: $latestParent"
+            return
+        }
+    }
+
+    $currentTarget = Get-ReparseTargetText $latestPath
+    if ($currentTarget -and ([System.IO.Path]::GetFullPath($currentTarget) -eq [System.IO.Path]::GetFullPath($StableChromeRoot))) {
+        Write-Step "Chrome latest already points at stable cache."
+        return
+    }
+
+    $latestItem = Get-Item -LiteralPath $latestPath -Force -ErrorAction SilentlyContinue
+    if ($latestItem) {
+        if (-not ($latestItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+            throw "Refusing to replace non-junction Chrome latest path: $latestPath"
+        }
+        if ($currentTarget -and -not (
+                [System.IO.Path]::GetFullPath($currentTarget).StartsWith([System.IO.Path]::GetFullPath($CodexHomePath), [System.StringComparison]::OrdinalIgnoreCase) -or
+                [System.IO.Path]::GetFullPath($currentTarget).StartsWith([System.IO.Path]::GetFullPath($TargetMarketplacePath), [System.StringComparison]::OrdinalIgnoreCase)
+            )) {
+            throw "Refusing to replace Chrome latest junction with unexpected target: $currentTarget"
+        }
+
+        Write-Step "Chrome latest needs update: $latestPath -> $StableChromeRoot"
+        if ($ApplyChanges) {
+            [System.IO.Directory]::Delete($latestPath, $false)
+        }
+    } else {
+        Write-Step "Chrome latest junction is missing and will be created."
+    }
+
+    if ($ApplyChanges) {
+        New-Item -ItemType Junction -Path $latestPath -Target $StableChromeRoot -Force -ErrorAction Stop | Out-Null
+        $newTarget = Get-ReparseTargetText $latestPath
+        if (-not $newTarget -or ([System.IO.Path]::GetFullPath($newTarget) -ne [System.IO.Path]::GetFullPath($StableChromeRoot))) {
+            throw "Chrome latest junction was not updated to the stable cache."
+        }
+    }
+}
+
 function Update-JsonFile {
     param(
         [string]$Path,
@@ -416,6 +483,9 @@ function Protect-ChromeNativeHostFromMarketplaceLock {
         throw "Missing stable Chrome browser client: $stableClient"
     }
 
+    Stop-ChromeHostsUsingMarketplace -CodexHomePath $CodexHomePath -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
+    Set-ChromeLatestToStableCache -CodexHomePath $CodexHomePath -StableChromeRoot $stableChromeRoot -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
+
     $changed = 0
     $manifestPath = Join-Path $env:LOCALAPPDATA "OpenAI\extension\com.openai.codexextension.json"
     if (Update-JsonFile -Path $manifestPath -ApplyChanges:$ApplyChanges -Mutate {
@@ -446,7 +516,6 @@ function Protect-ChromeNativeHostFromMarketplaceLock {
         Write-Step "Chrome native host configs already point at stable cache."
     }
 
-    Stop-ChromeHostsUsingMarketplace -CodexHomePath $CodexHomePath -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
 }
 
 function Find-CodexCli {

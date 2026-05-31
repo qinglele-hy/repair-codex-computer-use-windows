@@ -60,6 +60,14 @@ After repair, fully quit and reopen Codex Desktop. Existing Codex sessions will 
 
 On Windows, the script also stabilizes the Chrome native messaging host when needed. If Chrome is running the Codex extension host from `plugins\cache\openai-bundled\chrome\latest` and that `latest` path points into the temporary bundled marketplace, the script rewrites the host config to use the stable cached Chrome plugin version instead. This prevents Chrome from locking the temporary marketplace and causing repeated `EBUSY` refresh failures.
 
+For machines where Codex or Chrome rewrites these paths after reboot, install the included logon repair script as a Windows scheduled task. It runs the same repair a few times after login so startup races are corrected automatically:
+
+```powershell
+Copy-Item ".\scripts\repair-at-logon.ps1" "D:\Codex\.codex\maintenance\repair-codex-computer-use-at-logon.ps1" -Force
+```
+
+Then create a scheduled task that runs that copied script at user logon.
+
 ## Verify
 
 If you have the Codex CLI available, run:
