@@ -5,6 +5,7 @@ param(
     [switch]$Apply,
     [switch]$Overwrite,
     [switch]$SelfTest,
+    [switch]$SkipChromeHostStabilization,
     [int]$RetryCount = 3,
     [int]$RetryDelayMilliseconds = 700
 )
@@ -282,6 +283,172 @@ function Test-RequiredFiles {
     }
 }
 
+function Get-StableChromeCacheRoot {
+    param([string]$CodexHomePath)
+    $chromeCacheRoot = Join-Path $CodexHomePath "plugins\cache\openai-bundled\chrome"
+    if (-not (Test-Path -LiteralPath $chromeCacheRoot)) {
+        return $null
+    }
+
+    $candidates = Get-ChildItem -LiteralPath $chromeCacheRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.Name -ne "latest" -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName "extension-host\windows\x64\extension-host.exe")) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName "scripts\browser-client.mjs"))
+        } |
+        Sort-Object LastWriteTime -Descending
+
+    if ($candidates.Count -gt 0) {
+        return $candidates[0].FullName
+    }
+    return $null
+}
+
+function Stop-ChromeHostsUsingMarketplace {
+    param(
+        [string]$CodexHomePath,
+        [string]$TargetMarketplacePath,
+        [switch]$ApplyChanges
+    )
+    $latestHost = Join-Path $CodexHomePath "plugins\cache\openai-bundled\chrome\latest\extension-host\windows\x64\extension-host.exe"
+    $marketplaceHost = Join-Path $TargetMarketplacePath "plugins\chrome\extension-host\windows\x64\extension-host.exe"
+    $latestPattern = [regex]::Escape($latestHost)
+    $marketplacePattern = [regex]::Escape($marketplaceHost)
+    $targets = @(Get-CimInstance Win32_Process | Where-Object {
+        ($_.Name -in @("cmd.exe", "extension-host.exe")) -and
+        (($_.CommandLine -match $latestPattern) -or ($_.CommandLine -match $marketplacePattern))
+    })
+
+    if ($targets.Count -eq 0) {
+        Write-Step "No Chrome native hosts are running from the marketplace/latest path."
+        return
+    }
+
+    Write-Step "Chrome native hosts using marketplace/latest path: $($targets.Count)"
+    foreach ($process in $targets) {
+        Write-Step ("host pid={0} name={1}" -f $process.ProcessId, $process.Name)
+        if ($ApplyChanges) {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        }
+    }
+
+    if ($ApplyChanges) {
+        Start-Sleep -Milliseconds 800
+        $remaining = @(Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -in @("cmd.exe", "extension-host.exe")) -and
+            (($_.CommandLine -match $latestPattern) -or ($_.CommandLine -match $marketplacePattern))
+        })
+        if ($remaining.Count -gt 0) {
+            throw "Chrome native host stabilization incomplete: $($remaining.Count) old host process(es) still use marketplace/latest path."
+        }
+        Write-Step "Stopped Chrome native hosts using marketplace/latest path."
+    }
+}
+
+function Update-JsonFile {
+    param(
+        [string]$Path,
+        [scriptblock]$Mutate,
+        [switch]$ApplyChanges
+    )
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $original = Get-Content -LiteralPath $Path -Raw
+    $json = $original | ConvertFrom-Json
+    & $Mutate $json
+    $updated = ($json | ConvertTo-Json -Depth 30)
+
+    if ($updated -ne $original.Trim()) {
+        Write-Step "Chrome native host config needs update: $Path"
+        if ($ApplyChanges) {
+            $updated | Set-Content -LiteralPath $Path -Encoding UTF8
+        }
+        return $true
+    }
+    return $false
+}
+
+function Protect-ChromeNativeHostFromMarketplaceLock {
+    param(
+        [string]$CodexHomePath,
+        [string]$TargetMarketplacePath,
+        [string]$PackagedChromeSource,
+        [switch]$ApplyChanges,
+        [switch]$Skip
+    )
+
+    if ($Skip) {
+        Write-Step "Chrome native host stabilization skipped."
+        return
+    }
+
+    $stableChromeRoot = Get-StableChromeCacheRoot $CodexHomePath
+    if (-not $stableChromeRoot) {
+        $chromeCacheRoot = Join-Path $CodexHomePath "plugins\cache\openai-bundled\chrome"
+        $version = "0.1.7"
+        $stableChromeRoot = Join-Path $chromeCacheRoot $version
+        if ($ApplyChanges -and -not (Test-Path -LiteralPath $stableChromeRoot)) {
+            New-Item -ItemType Directory -Force -Path $stableChromeRoot | Out-Null
+        }
+    }
+
+    Write-Step "Stable Chrome cache: $stableChromeRoot"
+    if (-not (Test-Path -LiteralPath $stableChromeRoot)) {
+        Write-Step "Stable Chrome cache does not exist yet."
+        return
+    }
+
+    if (Test-Path -LiteralPath $PackagedChromeSource) {
+        $planned = Copy-TreeConservative -Source $PackagedChromeSource -Destination $stableChromeRoot -ApplyChanges:$ApplyChanges -ReplaceExisting:$false -Attempts 3 -DelayMilliseconds 700
+        if ($planned.Count -gt 0) {
+            Write-Step "Stable Chrome cache missing items: $($planned.Count)"
+        }
+    }
+
+    $stableHost = Join-Path $stableChromeRoot "extension-host\windows\x64\extension-host.exe"
+    $stableClient = Join-Path $stableChromeRoot "scripts\browser-client.mjs"
+    if (-not (Test-Path -LiteralPath $stableHost)) {
+        throw "Missing stable Chrome extension host: $stableHost"
+    }
+    if (-not (Test-Path -LiteralPath $stableClient)) {
+        throw "Missing stable Chrome browser client: $stableClient"
+    }
+
+    $changed = 0
+    $manifestPath = Join-Path $env:LOCALAPPDATA "OpenAI\extension\com.openai.codexextension.json"
+    if (Update-JsonFile -Path $manifestPath -ApplyChanges:$ApplyChanges -Mutate {
+            param($json)
+            $json.path = $stableHost
+        }) {
+        $changed += 1
+    }
+
+    $hostListPaths = @(
+        (Join-Path $CodexHomePath "chrome-native-hosts.json"),
+        (Join-Path $env:LOCALAPPDATA "OpenAI\Codex\chrome-native-hosts.json")
+    )
+    foreach ($hostListPath in $hostListPaths) {
+        if (Update-JsonFile -Path $hostListPath -ApplyChanges:$ApplyChanges -Mutate {
+                param($json)
+                foreach ($entry in $json.chromeNativeHosts) {
+                    $entry.extensionHostPath = $stableHost
+                    $entry.browserClientPath = $stableClient
+                    $entry.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+                }
+            }) {
+            $changed += 1
+        }
+    }
+
+    if ($changed -eq 0) {
+        Write-Step "Chrome native host configs already point at stable cache."
+    }
+
+    Stop-ChromeHostsUsingMarketplace -CodexHomePath $CodexHomePath -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
+}
+
 function Find-CodexCli {
     $binRoot = Join-Path $env:LOCALAPPDATA "OpenAI\Codex\bin"
     if (Test-Path -LiteralPath $binRoot) {
@@ -375,6 +542,7 @@ Write-Step "Chrome source: $chromeSource"
 Write-Step "mode: $(if ($Apply) { "APPLY" } else { "DRY-RUN" })"
 Write-Step "overwrite: $([bool]$Overwrite)"
 Write-Step "self-test: $([bool]$SelfTest)"
+Write-Step "chrome-host-stabilization: $(-not [bool]$SkipChromeHostStabilization)"
 
 Write-Step "Config check:"
 $configStates = @(
@@ -405,6 +573,8 @@ foreach ($job in $copyJobs) {
         $allPlanned.Add($item)
     }
 }
+
+Protect-ChromeNativeHostFromMarketplaceLock -CodexHomePath $resolvedCodexHome -TargetMarketplacePath $targetMarketplace -PackagedChromeSource $chromeSource -ApplyChanges:$Apply -Skip:$SkipChromeHostStabilization
 
 if ($allPlanned.Count -eq 0) {
     Write-Step "No missing files found."

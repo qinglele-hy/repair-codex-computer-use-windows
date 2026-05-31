@@ -32,6 +32,7 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
      ```
    - Treat `-Apply -SelfTest` as the local stability command; when already healthy it should report `No missing files found` and pass.
    - Use `-Overwrite` only when files exist but are clearly stale or malformed.
+   - Leave Chrome native host stabilization enabled. It prevents Chrome from running the Codex extension host from `chrome\latest` when `latest` points into the temporary marketplace.
    - Check the generated log under `CODEX_HOME\logs\repair-codex-computer-use-*.log` when any step fails.
 
 3. Verify with the CLI from an explicit path if `codex` on PATH is blocked by WindowsApps:
@@ -55,6 +56,7 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
 - If Browser runtime works but settings says unavailable, treat it as a settings/status UI stale state until CLI and logs disagree.
 - If Computer Use reports `Computer Use native pipe path is unavailable`, the current tool session lacks the injected pipe path; file repair alone will not fix that already-running session.
 - If logs show `Windows Computer Use helper paths are unavailable`, repair the bundled marketplace snapshot so Codex can resolve the helper path on the next refresh/restart.
+- If logs show repeated `EBUSY` under `plugins\chrome\extension-host\windows\x64`, check whether Chrome is running `extension-host.exe` from `plugins\cache\openai-bundled\chrome\latest`. If `latest` is a junction into `.tmp\bundled-marketplaces`, run the repair script with `-Apply -SelfTest` so it rewrites the Chrome native host config to the stable cache path and stops the old host process.
 - Do not manually spawn `codex-computer-use.exe` or build a custom helper protocol. App approvals and interruption handling depend on Codex's native pipe flow.
 
 ## Safety

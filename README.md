@@ -58,6 +58,8 @@ The script is idempotent: when the machine is already healthy, `-Apply -SelfTest
 
 After repair, fully quit and reopen Codex Desktop. Existing Codex sessions will not receive the restored Computer Use native pipe path until a restart.
 
+On Windows, the script also stabilizes the Chrome native messaging host when needed. If Chrome is running the Codex extension host from `plugins\cache\openai-bundled\chrome\latest` and that `latest` path points into the temporary bundled marketplace, the script rewrites the host config to use the stable cached Chrome plugin version instead. This prevents Chrome from locking the temporary marketplace and causing repeated `EBUSY` refresh failures.
+
 ## Verify
 
 If you have the Codex CLI available, run:
@@ -87,6 +89,7 @@ The `skill/` directory contains the Codex skill version of the same workflow. To
 
 - Run the `-SelfTest` health check before `-Apply`.
 - Prefer `-SelfTest` on this machine so failures are visible immediately.
+- Leave Chrome native host stabilization enabled unless you are debugging the Chrome plugin cache itself.
 - Do not run `-Overwrite` unless you know existing files are stale or malformed.
 - Do not manually start `codex-computer-use.exe`; Codex Desktop needs to manage the native pipe and approval flow.
 - Restart Codex Desktop after repair.
