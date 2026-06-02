@@ -63,10 +63,10 @@ On Windows, the script also stabilizes the Chrome native messaging host when nee
 For machines where Codex or Chrome rewrites these paths after reboot, install the included logon repair script as a Windows scheduled task. It runs the same repair a few times after login so startup races are corrected automatically:
 
 ```powershell
-Copy-Item ".\scripts\repair-at-logon.ps1" "D:\Codex\.codex\maintenance\repair-codex-computer-use-at-logon.ps1" -Force
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install-scheduled-repair.ps1" -CodexHome "D:\Codex\.codex" -RunNow
 ```
 
-Then create a scheduled task that runs that copied script at user logon.
+The installer registers a hidden user logon task named `CodexComputerUseRepairAtLogon`. Instead of one long-running repair loop, it schedules short one-shot repair passes at 1, 5, 15, 30, 60, and 120 minutes after logon. This is more resilient when a Codex Desktop update finishes after Windows login and rewrites the bundled plugin paths again.
 
 ## Verify
 

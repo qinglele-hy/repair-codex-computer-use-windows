@@ -486,11 +486,16 @@ function Protect-ChromeNativeHostFromMarketplaceLock {
     Stop-ChromeHostsUsingMarketplace -CodexHomePath $CodexHomePath -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
     Set-ChromeLatestToStableCache -CodexHomePath $CodexHomePath -StableChromeRoot $stableChromeRoot -TargetMarketplacePath $TargetMarketplacePath -ApplyChanges:$ApplyChanges
 
+    $codexCli = Find-CodexCli
+    $nodeExe = Find-CodexBinExecutable -ExecutableName "node.exe" -CommandNames @("node.exe", "node")
+    $nodeRepl = Find-CodexBinExecutable -ExecutableName "node_repl.exe" -CommandNames @("node_repl.exe", "node_repl")
+    $resourcesPath = Get-PackagedResourcesRootFromChromeSource -PackagedChromeSource $PackagedChromeSource
+
     $changed = 0
     $manifestPath = Join-Path $env:LOCALAPPDATA "OpenAI\extension\com.openai.codexextension.json"
     if (Update-JsonFile -Path $manifestPath -ApplyChanges:$ApplyChanges -Mutate {
             param($json)
-            $json.path = $stableHost
+            [void](Set-JsonProperty -Object $json -Name "path" -Value $stableHost)
         }) {
         $changed += 1
     }
@@ -503,9 +508,16 @@ function Protect-ChromeNativeHostFromMarketplaceLock {
         if (Update-JsonFile -Path $hostListPath -ApplyChanges:$ApplyChanges -Mutate {
                 param($json)
                 foreach ($entry in $json.chromeNativeHosts) {
-                    $entry.extensionHostPath = $stableHost
-                    $entry.browserClientPath = $stableClient
-                    $entry.updatedAt = (Get-Date).ToUniversalTime().ToString("o")
+                    $entryChanged = $false
+                    if (Set-JsonProperty -Object $entry -Name "extensionHostPath" -Value $stableHost) { $entryChanged = $true }
+                    if (Set-JsonProperty -Object $entry -Name "browserClientPath" -Value $stableClient) { $entryChanged = $true }
+                    if (Set-JsonProperty -Object $entry -Name "codexCliPath" -Value $codexCli) { $entryChanged = $true }
+                    if (Set-JsonProperty -Object $entry -Name "nodePath" -Value $nodeExe) { $entryChanged = $true }
+                    if (Set-JsonProperty -Object $entry -Name "nodeReplPath" -Value $nodeRepl) { $entryChanged = $true }
+                    if (Set-JsonProperty -Object $entry -Name "resourcesPath" -Value $resourcesPath) { $entryChanged = $true }
+                    if ($entryChanged) {
+                        [void](Set-JsonProperty -Object $entry -Name "updatedAt" -Value ((Get-Date).ToUniversalTime().ToString("o")))
+                    }
                 }
             }) {
             $changed += 1
@@ -518,30 +530,82 @@ function Protect-ChromeNativeHostFromMarketplaceLock {
 
 }
 
-function Find-CodexCli {
+function Set-JsonProperty {
+    param(
+        [object]$Object,
+        [string]$Name,
+        [object]$Value
+    )
+    if ($null -eq $Value) {
+        return $false
+    }
+    if ($Object.PSObject.Properties[$Name]) {
+        if ($Object.$Name -eq $Value) {
+            return $false
+        }
+        $Object.$Name = $Value
+        return $true
+    } else {
+        Add-Member -InputObject $Object -MemberType NoteProperty -Name $Name -Value $Value
+        return $true
+    }
+}
+
+function Get-PackagedResourcesRootFromChromeSource {
+    param([string]$PackagedChromeSource)
+    if (-not $PackagedChromeSource) {
+        return $null
+    }
+
+    $path = $PackagedChromeSource
+    for ($i = 0; $i -lt 4; $i += 1) {
+        $path = Split-Path -Parent $path
+        if (-not $path) {
+            return $null
+        }
+    }
+
+    if (Test-Path -LiteralPath $path) {
+        return $path
+    }
+    return $null
+}
+
+function Find-CodexBinExecutable {
+    param(
+        [string]$ExecutableName,
+        [string[]]$CommandNames = @()
+    )
+
     $binRoot = Join-Path $env:LOCALAPPDATA "OpenAI\Codex\bin"
     if (Test-Path -LiteralPath $binRoot) {
-        $candidates = Get-ChildItem -LiteralPath $binRoot -Directory -ErrorAction SilentlyContinue |
+        $candidates = Get-ChildItem -LiteralPath $binRoot -Force -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending
         foreach ($candidate in $candidates) {
-            $exe = Join-Path $candidate.FullName "codex.exe"
-            if (Test-Path -LiteralPath $exe) {
+            if ($candidate.PSIsContainer) {
+                $exe = Join-Path $candidate.FullName $ExecutableName
+                if (Test-Path -LiteralPath $exe) {
+                    return $exe
+                }
+            } elseif ($candidate.Name -ieq $ExecutableName) {
+                $exe = $candidate.FullName
                 return $exe
             }
         }
     }
 
-    $command = Get-Command "codex.exe" -ErrorAction SilentlyContinue
-    if ($command -and $command.Source -and (Test-Path -LiteralPath $command.Source)) {
-        return $command.Source
-    }
-
-    $command = Get-Command "codex" -ErrorAction SilentlyContinue
-    if ($command -and $command.Source -and (Test-Path -LiteralPath $command.Source)) {
-        return $command.Source
+    foreach ($commandName in $CommandNames) {
+        $command = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($command -and $command.Source -and (Test-Path -LiteralPath $command.Source)) {
+            return $command.Source
+        }
     }
 
     return $null
+}
+
+function Find-CodexCli {
+    return (Find-CodexBinExecutable -ExecutableName "codex.exe" -CommandNames @("codex.exe", "codex"))
 }
 
 function Invoke-CodexPluginList {
