@@ -65,7 +65,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 $principal = New-ScheduledTaskPrincipal `
     -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
-    -LogonType Interactive `
+    -LogonType S4U `
     -RunLevel Limited
 
 Register-ScheduledTask `
@@ -82,4 +82,5 @@ if ($RunNow) {
 
 Write-Host "[install-scheduled-repair] Installed task: $TaskName"
 Write-Host "[install-scheduled-repair] Script: $targetScript"
+Write-Host "[install-scheduled-repair] Logon type: S4U (non-interactive, no visible PowerShell window)"
 Write-Host "[install-scheduled-repair] Delays after logon: $($uniqueDelays -join ', ') minute(s)"

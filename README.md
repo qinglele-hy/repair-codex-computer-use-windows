@@ -27,6 +27,7 @@ It conservatively copies missing bundled plugin files from known-good locations:
 
 - `%CODEX_HOME%\plugins\cache\openai-bundled`
 - the packaged Codex Desktop resources under `C:\Program Files\WindowsApps`
+- newer packaged Computer Use helper dependencies under `app\resources\cua_node`
 
 It does not delete plugin caches by default.
 
@@ -66,7 +67,7 @@ For machines where Codex or Chrome rewrites these paths after reboot, install th
 powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install-scheduled-repair.ps1" -CodexHome "D:\Codex\.codex" -RunNow
 ```
 
-The installer registers a hidden user logon task named `CodexComputerUseRepairAtLogon`. Instead of one long-running repair loop, it schedules short one-shot repair passes at 1, 5, 15, 30, 60, and 120 minutes after logon. This is more resilient when a Codex Desktop update finishes after Windows login and rewrites the bundled plugin paths again.
+The installer registers a hidden user logon task named `CodexComputerUseRepairAtLogon`. Instead of one long-running repair loop, it schedules short one-shot repair passes at 1, 5, 15, 30, 60, and 120 minutes after logon. The task uses the Windows `S4U` logon type so it runs non-interactively and does not flash a visible PowerShell window. This is more resilient when a Codex Desktop update finishes after Windows login and rewrites the bundled plugin paths again.
 
 ## Verify
 

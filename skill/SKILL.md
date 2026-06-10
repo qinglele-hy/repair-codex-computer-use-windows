@@ -31,10 +31,11 @@ The common failure is a corrupted or partial `openai-bundled` marketplace snapsh
      powershell -NoProfile -ExecutionPolicy Bypass -File "<skill-root>\scripts\repair-bundled-marketplace.ps1" -CodexHome "D:\Codex\.codex" -Apply -SelfTest
      ```
    - Treat `-Apply -SelfTest` as the local stability command; when already healthy it should report `No missing files found` and pass.
+   - On newer Codex builds, Computer Use helper dependencies may live under packaged `app\resources\cua_node\bin\node_modules\@oai\sky` instead of inside the plugin directory; the repair script copies that dependency tree back into the marketplace snapshot when needed.
    - Use `-Overwrite` only when files exist but are clearly stale or malformed.
    - Leave Chrome native host stabilization enabled. It prevents Chrome from running the Codex extension host from `chrome\latest` when `latest` points into the temporary marketplace.
    - Check the generated log under `CODEX_HOME\logs\repair-codex-computer-use-*.log` when any step fails.
-   - If the user reports the problem returns after shutdown, reboot, or a Codex Desktop update, install `scripts\install-scheduled-repair.ps1`. It copies `repair-at-logon.ps1` into `CODEX_HOME\maintenance` and registers delayed one-shot logon repairs at 1, 5, 15, 30, 60, and 120 minutes. This corrects startup and post-update races where Codex or Chrome rewrites `chrome\latest` back to the temporary marketplace after the first logon repair already succeeded.
+   - If the user reports the problem returns after shutdown, reboot, or a Codex Desktop update, install `scripts\install-scheduled-repair.ps1`. It copies `repair-at-logon.ps1` into `CODEX_HOME\maintenance` and registers delayed one-shot logon repairs at 1, 5, 15, 30, 60, and 120 minutes. The scheduled task uses Windows `S4U` logon type so it runs non-interactively and does not flash a visible PowerShell window. This corrects startup and post-update races where Codex or Chrome rewrites `chrome\latest` back to the temporary marketplace after the first logon repair already succeeded.
 
 3. Verify with the CLI from an explicit path if `codex` on PATH is blocked by WindowsApps:
    ```powershell

@@ -167,6 +167,64 @@ function Get-LatestPluginCacheRoot {
     return $null
 }
 
+function Get-AppResourcesRootFromBundledRoot {
+    param([string]$BundledRoot)
+    if (-not $BundledRoot) {
+        return $null
+    }
+
+    $path = $BundledRoot
+    for ($i = 0; $i -lt 2; $i += 1) {
+        $path = Split-Path -Parent $path
+        if (-not $path) {
+            return $null
+        }
+    }
+
+    if (Test-Path -LiteralPath $path) {
+        return $path
+    }
+    return $null
+}
+
+function Test-SkyDependencyRoot {
+    param([string]$Root)
+    if (-not $Root) {
+        return $false
+    }
+    return (
+        (Test-Path -LiteralPath (Join-Path $Root "package.json")) -and
+        (Test-Path -LiteralPath (Join-Path $Root "bin\windows\codex-computer-use.exe")) -and
+        (Test-Path -LiteralPath (Join-Path $Root "dist\project\cua\sky_js\src\targets\windows\internal\helper_transport.js"))
+    )
+}
+
+function Find-SkyDependencySource {
+    param(
+        [string]$BundledRoot,
+        [string]$ComputerUseSource
+    )
+
+    $candidates = @()
+    if ($ComputerUseSource) {
+        $candidates += Join-Path $ComputerUseSource "node_modules\@oai\sky"
+    }
+    if ($BundledRoot) {
+        $candidates += Join-Path $BundledRoot "plugins\computer-use\node_modules\@oai\sky"
+        $appResourcesRoot = Get-AppResourcesRootFromBundledRoot $BundledRoot
+        if ($appResourcesRoot) {
+            $candidates += Join-Path $appResourcesRoot "cua_node\bin\node_modules\@oai\sky"
+        }
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-SkyDependencyRoot $candidate) {
+            return $candidate
+        }
+    }
+    return $null
+}
+
 function Copy-ItemWithRetry {
     param(
         [string]$Source,
@@ -663,6 +721,7 @@ $browserSource = Get-LatestPluginCacheRoot $resolvedCodexHome "browser"
 if (-not $browserSource) { $browserSource = Join-Path $resourceRoot "plugins\browser" }
 $computerSource = Get-LatestPluginCacheRoot $resolvedCodexHome "computer-use"
 if (-not $computerSource) { $computerSource = Join-Path $resourceRoot "plugins\computer-use" }
+$skySource = Find-SkyDependencySource -BundledRoot $resourceRoot -ComputerUseSource $computerSource
 $chromeSource = Join-Path $resourceRoot "plugins\chrome"
 $latexSource = Join-Path $resourceRoot "plugins\latex"
 
@@ -671,6 +730,7 @@ Write-Step "Marketplace target: $targetMarketplace"
 Write-Step "Packaged resources: $resourceRoot"
 Write-Step "Browser source: $browserSource"
 Write-Step "Computer Use source: $computerSource"
+Write-Step "Computer Use sky source: $(if ($skySource) { $skySource } else { "<not found>" })"
 Write-Step "Chrome source: $chromeSource"
 Write-Step "mode: $(if ($Apply) { "APPLY" } else { "DRY-RUN" })"
 Write-Step "overwrite: $([bool]$Overwrite)"
@@ -699,6 +759,9 @@ $copyJobs = @(
     @{ Source = $chromeSource; Destination = (Join-Path $targetMarketplace "plugins\chrome") },
     @{ Source = $latexSource; Destination = (Join-Path $targetMarketplace "plugins\latex") }
 )
+if ($skySource) {
+    $copyJobs += @{ Source = $skySource; Destination = (Join-Path $targetMarketplace "plugins\computer-use\node_modules\@oai\sky") }
+}
 
 foreach ($job in $copyJobs) {
     $planned = Copy-TreeConservative -Source $job.Source -Destination $job.Destination -ApplyChanges:$Apply -ReplaceExisting:$Overwrite -Attempts $RetryCount -DelayMilliseconds $RetryDelayMilliseconds
